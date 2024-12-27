@@ -1,0 +1,142 @@
+# settings.py
+INSTALLED_APPS = [
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'blog',
+    'accounts',
+    'messenger',
+    'ckeditor',
+]
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = os.path.join(BASE_DIR, 'media')
+
+# blog/models.py
+from django.db import models
+from django.contrib.auth.models import User
+from ckeditor.fields import RichTextField
+
+class Post(models.Model):
+    title = models.CharField(max_length=200)
+    subtitle = models.CharField(max_length=200)
+    content = RichTextField()
+    image = models.ImageField(upload_to='posts/')
+    created_date = models.DateTimeField(auto_now_add=True)
+    author = models.ForeignKey(User, on_delete=models.CASCADE)
+
+    def __str__(self):
+        return self.title
+
+# accounts/models.py
+class UserProfile(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE)
+    avatar = models.ImageField(upload_to='avatars/', blank=True)
+    bio = models.TextField(blank=True)
+    birth_date = models.DateField(null=True, blank=True)
+
+    def __str__(self):
+        return self.user.username
+
+# messenger/models.py
+class Message(models.Model):
+    sender = models.ForeignKey(User, related_name='sent_messages', on_delete=models.CASCADE)
+    receiver = models.ForeignKey(User, related_name='received_messages', on_delete=models.CASCADE)
+    content = models.TextField()
+    timestamp = models.DateTimeField(auto_now_add=True)
+    is_read = models.BooleanField(default=False)
+
+    class Meta:
+        ordering = ['-timestamp']
+
+# blog/views.py
+from django.views.generic import ListView, DetailView, CreateView, UpdateView, DeleteView
+from django.contrib.auth.mixins import LoginRequiredMixin
+from django.shortcuts import render
+
+class PostListView(ListView):
+    model = Post
+    template_name = 'blog/post_list.html'
+    context_object_name = 'posts'
+    ordering = ['-created_date']
+
+class PostDetailView(DetailView):
+    model = Post
+    template_name = 'blog/post_detail.html'
+
+class PostCreateView(LoginRequiredMixin, CreateView):
+    model = Post
+    template_name = 'blog/post_form.html'
+    fields = ['title', 'subtitle', 'content', 'image']
+
+    def form_valid(self, form):
+        form.instance.author = self.request.user
+        return super().form_valid(form)
+
+class PostUpdateView(LoginRequiredMixin, UpdateView):
+    model = Post
+    template_name = 'blog/post_form.html'
+    fields = ['title', 'subtitle', 'content', 'image']
+
+    def test_func(self):
+        post = self.get_object()
+        return self.request.user == post.author
+
+class PostDeleteView(LoginRequiredMixin, DeleteView):
+    model = Post
+    template_name = 'blog/post_confirm_delete.html'
+    success_url = '/blog/'
+
+def about(request):
+    return render(request, 'blog/about.html')
+
+# accounts/views.py
+from django.contrib.auth.decorators import login_required
+
+@login_required
+def profile(request):
+    return render(request, 'accounts/profile.html')
+
+@login_required
+def profile_update(request):
+    if request.method == 'POST':
+        user_form = UserUpdateForm(request.POST, instance=request.user)
+        profile_form = ProfileUpdateForm(request.POST, request.FILES, instance=request.user.profile)
+        if user_form.is_valid() and profile_form.is_valid():
+            user_form.save()
+            profile_form.save()
+            return redirect('profile')
+    else:
+        user_form = UserUpdateForm(instance=request.user)
+        profile_form = ProfileUpdateForm(instance=request.user.profile)
+    
+    context = {
+        'user_form': user_form,
+        'profile_form': profile_form
+    }
+    return render(request, 'accounts/profile_update.html', context)
+
+# urls.py
+from django.urls import path
+from . import views
+
+urlpatterns = [
+    path('', views.PostListView.as_view(), name='blog-home'),
+    path('about/', views.about, name='blog-about'),
+    path('post/<int:pk>/', views.PostDetailView.as_view(), name='post-detail'),
+    path('post/new/', views.PostCreateView.as_view(), name='post-create'),
+    path('post/<int:pk>/update/', views.PostUpdateView.as_view(), name='post-update'),
+    path('post/<int:pk>/delete/', views.PostDeleteView.as_view(), name='post-delete'),
+]
+
+# accounts/urls.py
+urlpatterns = [
+    path('profile/', views.profile, name='profile'),
+    path('profile/update/', views.profile_update, name='profile-update'),
+    path('login/', auth_views.LoginView.as_view(template_name='accounts/login.html'), name='login'),
+    path('logout/', auth_views.LogoutView.as_view(template_name='accounts/logout.html'), name='logout'),
+    path('register/', views.register, name='register'),
+]
